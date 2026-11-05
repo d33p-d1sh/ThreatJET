@@ -1,7 +1,7 @@
 # Changelog
 
 Notable changes are recorded here. Version numbers follow the version embedded
-in the standalone `ThreatJet.ps1` build. A version in source code is **not**
+in the standalone `ThreatJET.ps1` build. A version in source code is **not**
 necessarily a published GitHub Release.
 
 ## [Unreleased]
@@ -14,6 +14,8 @@ necessarily a published GitHub Release.
 - README project branding and documentation navigation.
 
 ### Changed
+- Standardize `ThreatJET` capitalization across the standalone filename, public command names, generated report paths, documentation, assets, and CI tests.
+- Rename the canonical entrypoint to `ThreatJET.ps1` (update hardcoded file paths when upgrading).
 - README configuration example aligned with the current standalone script
   (`CollectorVersion` / `CorrelationVersion` 2.4.0; `SchemaVersion` 1.6).
 

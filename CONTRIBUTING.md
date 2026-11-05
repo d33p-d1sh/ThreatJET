@@ -10,7 +10,7 @@ or network access to external services on the assessment host.
 - For security vulnerabilities, follow [SECURITY.md](SECURITY.md) instead of
   posting details publicly.
 - Check existing issues and pull requests before starting larger work.
-- Keep the single-file `ThreatJet.ps1` distribution usable on Windows
+- Keep the single-file `ThreatJET.ps1` distribution usable on Windows
   PowerShell **5.1+**. Avoid new runtime dependencies unless explicitly justified.
 - Preserve collection as read-only. Any remediation guidance must be guarded
   (`-WhatIf` or commented out) and never executed automatically.
@@ -26,7 +26,7 @@ Invoke-Pester -Path .\tests -CI
 
 # Optional linting:
 Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-Invoke-ScriptAnalyzer -Path .\ThreatJet.ps1
+Invoke-ScriptAnalyzer -Path .\ThreatJET.ps1
 Invoke-ScriptAnalyzer -Path .\Build-TJETCveDatabase.ps1
 ```
 

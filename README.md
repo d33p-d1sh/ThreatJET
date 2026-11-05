@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/threatjet-radar-logo-v2.webp" alt="ThreatJET — Jumbo Evaluation Toolkit logo" width="360">
+<img src="assets/ThreatJET-radar-logo-v2.webp" alt="ThreatJET — Jumbo Evaluation Toolkit logo" width="360">
 
 # ThreatJET — Jumbo Evaluation Toolkit
 
@@ -16,8 +16,10 @@ LDAP/ADSI, correlates the weaknesses into **potential attack paths to Tier 0**, 
 software against an **offline CVE database**, and produces an interactive HTML report plus
 a **safety-guarded remediation** script.
 
-It ships as a **single self-contained `ThreatJet.ps1`** you can drop on a hardened jump box
+It ships as a **single self-contained `ThreatJET.ps1`** you can drop on a hardened jump box
 or assessment laptop and run — no module install, no RSAT, no internet.
+
+**Naming convention:** The canonical standalone filename is `ThreatJET.ps1`. Update any existing automation that references a previous mixed-case filename; GitHub and Linux file paths are case-sensitive, although PowerShell command names are not.
 
 > **Collection is read-only.** The toolkit never writes to Active Directory. Generated
 > remediation commands are guarded (`-WhatIf` or commented out) and never run on their own.
@@ -113,14 +115,14 @@ inventory projection) and fall back to ADSI when absent. They are never required
 
 ## Install and quick start
 
-`ThreatJet.ps1` is the whole tool. Copy it to the host and dot-source it.
+`ThreatJET.ps1` is the whole tool. Copy it to the host and dot-source it.
 
 ```powershell
 # clear Mark-of-the-Web if the file came from a share or download:
-Unblock-File .\ThreatJet.ps1
+Unblock-File .\ThreatJET.ps1
 
 # load the commands:
-. .\ThreatJet.ps1
+. .\ThreatJET.ps1
 
 # guided, interactive run:
 Show-TJETMenu
@@ -130,10 +132,10 @@ Or run it directly:
 
 ```powershell
 # Standard run in the current domain context, open the report when done:
-Invoke-ThreatJetAssessment -OpenReport
+Invoke-ThreatJETAssessment -OpenReport
 
 # From a non-domain or local account, pin the DC and supply domain credentials:
-Invoke-ThreatJetAssessment -Server dc01.corp.local -Credential (Get-Credential) -OpenReport
+Invoke-ThreatJETAssessment -Server dc01.corp.local -Credential (Get-Credential) -OpenReport
 ```
 
 > Running from a **local account** (e.g. `localuser`) with no domain identity will fail the
@@ -150,19 +152,19 @@ A profile bundles sensible options so you don't have to remember switches. Any e
 parameter overrides the profile.
 
 ```powershell
-Invoke-ThreatJetAssessment -Profile Quick       # AD only, targeted ACLs, fast triage
-Invoke-ThreatJetAssessment -Profile Standard    # AD + local host + attack paths (default)
-Invoke-ThreatJetAssessment -Profile Deep        # everything: full ACLs, inventory, CVE
-Invoke-ThreatJetAssessment -Profile Identity    # AD + attack paths, identity-focused
-Invoke-ThreatJetAssessment -Profile Endpoint    # local host + software + CVE only (no domain)
-Invoke-ThreatJetAssessment -Profile PurpleTeam  # AD + attack paths, ATT&CK-focused
+Invoke-ThreatJETAssessment -Profile Quick       # AD only, targeted ACLs, fast triage
+Invoke-ThreatJETAssessment -Profile Standard    # AD + local host + attack paths (default)
+Invoke-ThreatJETAssessment -Profile Deep        # everything: full ACLs, inventory, CVE
+Invoke-ThreatJETAssessment -Profile Identity    # AD + attack paths, identity-focused
+Invoke-ThreatJETAssessment -Profile Endpoint    # local host + software + CVE only (no domain)
+Invoke-ThreatJETAssessment -Profile PurpleTeam  # AD + attack paths, ATT&CK-focused
 ```
 
 ### Key parameters
 
 | Parameter | Purpose |
 |---|---|
-| `-Path <dir>` | Output folder. Defaults to `ThreatJet_<timestamp>` in the current directory. |
+| `-Path <dir>` | Output folder. Defaults to `ThreatJET_<timestamp>` in the current directory. |
 | `-Profile <name>` | Preset option bundle (see above). |
 | `-Scope <list>` | `All` (default), `AD`, `LocalHost`, `AttackPath`, `Inventory`. |
 | `-ADObjectType <list>` | Restrict AD collection: `Users,Computers,Groups,ServiceAccounts,GPOs,ACLs,Trusts,FGPP,Domain,ADCS`. |
@@ -184,16 +186,16 @@ Invoke-ThreatJetAssessment -Profile PurpleTeam  # AD + attack paths, ATT&CK-focu
 
 ```powershell
 # Re-analyse already-collected data (offline, no DC contact):
-Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -SkipCollection
+Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -SkipCollection
 
 # Only certain object types:
-Invoke-ThreatJetAssessment -ADObjectType Users,Groups
+Invoke-ThreatJETAssessment -ADObjectType Users,Groups
 
 # AD plus attack-path tracing, skipping the local host:
-Invoke-ThreatJetAssessment -Scope AD,AttackPath
+Invoke-ThreatJETAssessment -Scope AD,AttackPath
 
 # Full local-host review with credential datamine and CVE scan (no domain needed):
-Invoke-ThreatJetAssessment -Scope LocalHost -DataminePasswords -IncludeCVEScan
+Invoke-ThreatJETAssessment -Scope LocalHost -DataminePasswords -IncludeCVEScan
 ```
 
 Large or multi-domain estates: pin a DC with `-Server`, pace with `-ThrottleMs`, and note
@@ -203,30 +205,30 @@ run** — for a forest, run once per domain.
 
 ### Available commands
 
-Dot-sourcing `ThreatJet.ps1` exposes:
+Dot-sourcing `ThreatJET.ps1` exposes:
 
 | Command | Does |
 |---|---|
 | `Show-TJETMenu` | Interactive front end over everything below. |
-| `Invoke-ThreatJetAssessment` | The full pipeline: collect → correlate → report. |
-| `Export-ThreatJetData` | Collection only. |
+| `Invoke-ThreatJETAssessment` | The full pipeline: collect → correlate → report. |
+| `Export-ThreatJETData` | Collection only. |
 | `Export-ADObjectInventory` | Full object inventory only. |
-| `Invoke-ThreatJetCorrelation` | Correlate existing collected data (offline). |
-| `New-ThreatJetReport` | Build the HTML report from existing findings. |
+| `Invoke-ThreatJETCorrelation` | Correlate existing collected data (offline). |
+| `New-ThreatJETReport` | Build the HTML report from existing findings. |
 | `New-TJETRemediationReport` | Build the remediation report + guarded script. |
 | `Find-TJETAttackPath` | Trace and print attack paths from an existing collection. |
-| `Compare-ThreatJetBaseline` | Diff two assessments. |
-| `New-AssessmentSummary` / `Export-ThreatJetJSON` | Summary and JSON exports. |
+| `Compare-ThreatJETBaseline` | Diff two assessments. |
+| `New-AssessmentSummary` / `Export-ThreatJETJSON` | Summary and JSON exports. |
 
 ---
 
 ## Viewing attack paths
 
 Attack-path analysis runs with the Standard / Deep / Identity / PurpleTeam profiles, or with
-`-Scope AttackPath` / `All`. Results land in the output folder (`ThreatJet_<timestamp>` or
+`-Scope AttackPath` / `All`. Results land in the output folder (`ThreatJET_<timestamp>` or
 your `-Path`).
 
-**In the HTML report (`ThreatJet_Report.html`):**
+**In the HTML report (`ThreatJET_Report.html`):**
 - The **Attack-Path Insights** strip near the top shows choke-point and blast-radius counts.
 - In the findings table, type `path` in the global search (or filter the **ID** column to
   `PATH`). You'll see `PATH-001/002/003` (direct rights over Tier 0), `PATH-GRAPH` (multi-hop
@@ -244,8 +246,8 @@ your `-Path`).
 
 **On demand, without re-collecting:**
 ```powershell
-. .\ThreatJet.ps1
-Find-TJETAttackPath -Path C:\path\to\ThreatJet_<timestamp> -Top 50
+. .\ThreatJET.ps1
+Find-TJETAttackPath -Path C:\path\to\ThreatJET_<timestamp> -Top 50
 ```
 It prints every principal that can reach Tier 0 with the full chain, shortest first.
 
@@ -320,7 +322,7 @@ git clone --depth 1 https://github.com/CVEProject/cvelistV5.git
     -MinCvss 7 -KevPath C:\feeds\known_exploited_vulnerabilities.json -EpssPath C:\feeds\epss_scores-current.csv
 
 # 3. Point ThreatJET at it:
-Invoke-ThreatJetAssessment -IncludeCVEScan -CVEDatabasePath C:\Security\cves.csv
+Invoke-ThreatJETAssessment -IncludeCVEScan -CVEDatabasePath C:\Security\cves.csv
 ```
 
 Useful switches: `-MinCvss <n>` (drop anything below a CVSS base score; KEV-listed CVEs are
@@ -394,7 +396,7 @@ visible, so an exception can't silently hide forever.
 Re-run against a prior assessment's findings CSV to see drift instead of a fresh list:
 
 ```powershell
-Invoke-ThreatJetAssessment -Path C:\Audit\Q3 `
+Invoke-ThreatJETAssessment -Path C:\Audit\Q3 `
     -BaselinePath C:\Audit\Q2\AD_Assessment_Findings.csv
 ```
 
@@ -409,7 +411,7 @@ Everything lands in the output folder (the run prints `Output: <path>`):
 
 | File | Contents |
 |---|---|
-| `ThreatJet_Report.html` | Interactive report: severity cards, findings, attack-path insights, Vulnerable Software panel, coverage |
+| `ThreatJET_Report.html` | Interactive report: severity cards, findings, attack-path insights, Vulnerable Software panel, coverage |
 | `AD_Assessment_Findings.csv` / `.json` | Findings with RunId, type, ATT&CK mapping, detection guidance, remediation |
 | `ATTACK_Coverage.csv` | Techniques the domain is exposed to, active vs. suppressed, with max severity |
 | `Remediation_Report.html` / `Remediation_Script.ps1` | Fix list and a guarded, review-before-run change script |
@@ -664,7 +666,7 @@ exposed local administrator password.
 
 ## Configuration
 
-Tunable values live in a `$script:TJETConfig` hashtable near the top of `ThreatJet.ps1`. Edit
+Tunable values live in a `$script:TJETConfig` hashtable near the top of `ThreatJET.ps1`. Edit
 them in place, or override the equivalents via parameters.
 
 ```powershell
@@ -741,7 +743,7 @@ typically 15–16 (high security), 14 (commercial), 12 (legacy).
 
 MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Melvin Salyers ([d33p-d1sh](https://github.com/d33p-d1sh)).
 
-The published `ThreatJet.ps1` carries the full MIT notice in its header, so the license
+The published `ThreatJET.ps1` carries the full MIT notice in its header, so the license
 travels with the file on its own.
 
 ---

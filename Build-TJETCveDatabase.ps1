@@ -366,4 +366,4 @@ if ($kevSet.Count -gt 0) { Write-Host ("  {0:N0} output row(s) flagged KEV (know
 Write-Host "    $OutputPath"
 Write-Host ''
 Write-Host "Point ThreatJET at it:" -ForegroundColor Gray
-Write-Host "    Invoke-ThreatJetAssessment -IncludeCVEScan -CVEDatabasePath '$OutputPath'" -ForegroundColor White
+Write-Host "    Invoke-ThreatJETAssessment -IncludeCVEScan -CVEDatabasePath '$OutputPath'" -ForegroundColor White
