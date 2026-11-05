@@ -39,7 +39,7 @@
     never run on their own.
 
     Load it by dot-sourcing, then run the menu:
-        . .\ThreatJet.ps1
+        . .\ThreatJET.ps1
         Show-TJETMenu
 #>
 
@@ -3655,11 +3655,11 @@ function Get-TJETSuppressions {
     all targets. An expired suppression (Expires in the past) does NOT suppress -- it is
     surfaced so a lapsed exception is visible rather than silently permanent.
 .PARAMETER Path
-    Path to the suppressions JSON. Defaults to ThreatJet.Suppressions.json in the current
+    Path to the suppressions JSON. Defaults to ThreatJET.Suppressions.json in the current
     directory.
 #>
     param(
-        [string]$Path = (Join-Path $PWD 'ThreatJet.Suppressions.json')
+        [string]$Path = (Join-Path $PWD 'ThreatJET.Suppressions.json')
     )
 
     if (-not (Test-Path $Path)) { return @() }
@@ -3737,7 +3737,7 @@ function Add-TJETSuppressionState {
 #>
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()]$Findings,
-        [string]$SuppressionPath = (Join-Path $PWD 'ThreatJet.Suppressions.json')
+        [string]$SuppressionPath = (Join-Path $PWD 'ThreatJET.Suppressions.json')
     )
 
     $suppressions = Get-TJETSuppressions -Path $SuppressionPath
@@ -6829,14 +6829,14 @@ function Collect-FilesystemCredentials {
         # OS telemetry shapes
         'telemetry*.json'; '*.ASM-*.json'; 'MpEnrollment*'; '*.etl'
         # ThreatJET's own artifacts (never scan what the tool produced or is)
-        'ThreatJet*'; 'TJET*'; '*.Standalone.ps1'
+        'ThreatJET*'; 'TJET*'; '*.Standalone.ps1'
         'AD_*_Audit.csv'; 'AD_Assessment_Findings.csv'; 'AD_Domain_Summary.csv'
         'ATTACK_Coverage.csv'; 'Assessment_Summary.csv'; 'REL_*.csv'
-        'Coverage.json'; 'Run_Manifest.json'; 'ThreatJet.Suppressions.json'
-        'Remediation_Report.html'; 'Remediation_Script.ps1'; 'ThreatJet_Report.html'
+        'Coverage.json'; 'Run_Manifest.json'; 'ThreatJET.Suppressions.json'
+        'Remediation_Report.html'; 'Remediation_Script.ps1'; 'ThreatJET_Report.html'
     )
     # A ThreatJET fingerprint in file CONTENT -- the bulletproof self-exclusion.
-    $selfSignature = 'ThreatJET|Get-TJET|Invoke-ThreatJet|TJET-\d{8}|FilesystemCredential'
+    $selfSignature = 'ThreatJET|Get-TJET|Invoke-ThreatJET|TJET-\d{8}|FilesystemCredential'
 
     function Test-ScanExcluded {
         param([System.IO.FileInfo]$File)
@@ -9643,9 +9643,9 @@ function Invoke-TrustFindings {
 
 
 # ==========================================================================
-# SOURCE: Reporting\Compare-ThreatJetBaseline.ps1
+# SOURCE: Reporting\Compare-ThreatJETBaseline.ps1
 # ==========================================================================
-function Compare-ThreatJetBaseline {
+function Compare-ThreatJETBaseline {
 <#
 .SYNOPSIS
     Compares two assessment findings files and reports drift.
@@ -9913,9 +9913,9 @@ function Export-Findings {
 
 
 # ==========================================================================
-# SOURCE: Reporting\Export-ThreatJetJSON.ps1
+# SOURCE: Reporting\Export-ThreatJETJSON.ps1
 # ==========================================================================
-function Export-ThreatJetJSON {
+function Export-ThreatJETJSON {
 
 
 param(
@@ -9965,7 +9965,7 @@ function New-AssessmentSummary {
     function Test-Agg($f) {
         ("$($f.Finding_Type)" -eq 'Aggregate') -or ($aggregateIds -contains "$($f.Finding_ID)")
     }
-    # Vulnerability (CVE) findings are a separate risk track (see New-ThreatJetReport); they
+    # Vulnerability (CVE) findings are a separate risk track (see New-ThreatJETReport); they
     # are excluded from the posture severity counts so a pile of CVEs cannot distort the
     # headline, and tallied on their own line instead.
     function Test-Vuln($f) {
@@ -10300,7 +10300,7 @@ function Export-ADObjectInventory {
     [CmdletBinding()]
     param(
         [Alias('OutDir')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateSet('Users','Computers','Groups','GPOs','OrganizationalUnits','Contacts',
                      'ManagedServiceAccounts','ForeignSecurityPrincipals','Containers',
@@ -10644,15 +10644,15 @@ function Export-ADObjectInventory {
 
 
 # ==========================================================================
-# SOURCE: Public\Export-ThreatJetData.ps1
+# SOURCE: Public\Export-ThreatJETData.ps1
 # ==========================================================================
-function Export-ThreatJetData {
+function Export-ThreatJETData {
 <#
 .SYNOPSIS
     Collects Active Directory data to CSV for offline assessment.
 .DESCRIPTION
     Read-only collection. Writes one CSV per data domain into -Path, which is then the
-    input to Invoke-ThreatJetCorrelation.
+    input to Invoke-ThreatJETCorrelation.
 
     Each collector is isolated: a failure in one is logged and the run continues. The
     summary table at the end reports the record count per collector, so a partial or
@@ -10666,14 +10666,14 @@ function Export-ThreatJetData {
     Bypass directory reachability and optional dependency checks. (ThreatJET does not
     require RSAT; the AD/GroupPolicy modules are used as an enhancement when present.)
 .EXAMPLE
-    Export-ThreatJetData -Path C:\Audit
+    Export-ThreatJETData -Path C:\Audit
 .EXAMPLE
-    Export-ThreatJetData -Path C:\Audit -AclMode Full
+    Export-ThreatJETData -Path C:\Audit -AclMode Full
 #>
     [CmdletBinding()]
     param(
         [Alias('OutDir','OutputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateSet('Targeted','Full')]
         [string]$AclMode = 'Targeted',
@@ -10754,7 +10754,7 @@ function Export-ThreatJetData {
 
         $index++
 
-        Write-Progress -Activity 'ThreatJet collection' `
+        Write-Progress -Activity 'ThreatJET collection' `
             -Status "$($collector.Name) ($index of $($collectors.Count))" `
             -PercentComplete (($index / $collectors.Count) * 100)
 
@@ -10846,7 +10846,7 @@ function Export-ThreatJetData {
         }
     }
 
-    Write-Progress -Activity 'ThreatJet collection' -Completed
+    Write-Progress -Activity 'ThreatJET collection' -Completed
 
     $failed = @($results | Where-Object { $_.Status -like 'FAILED*' })
 
@@ -10887,7 +10887,7 @@ function Find-TJETAttackPath {
     [CmdletBinding()]
     param(
         [Alias('InDir','InputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateRange(1, 10000)]
         [int]$Top = 20
@@ -10941,15 +10941,15 @@ function Find-TJETAttackPath {
 
 
 # ==========================================================================
-# SOURCE: Public\Invoke-ThreatJetAssessment.ps1
+# SOURCE: Public\Invoke-ThreatJETAssessment.ps1
 # ==========================================================================
-function Invoke-ThreatJetAssessment {
+function Invoke-ThreatJETAssessment {
 <#
 .SYNOPSIS
     Runs a complete AD security assessment assessment: collect, correlate, report.
 .DESCRIPTION
-    One command for the common case. Equivalent to Export-ThreatJetData,
-    Invoke-ThreatJetCorrelation and New-ThreatJetReport in sequence.
+    One command for the common case. Equivalent to Export-ThreatJETData,
+    Invoke-ThreatJETCorrelation and New-ThreatJETReport in sequence.
 
     Output is timestamped by default so consecutive assessments do not overwrite each
     other, which also means the previous run is preserved and can be used directly as
@@ -10958,7 +10958,7 @@ function Invoke-ThreatJetAssessment {
     Use -SkipCollection to re-analyse already-collected data (for example on an
     analyst workstation with no RSAT, or after tuning thresholds).
 .PARAMETER Path
-    Assessment directory. Defaults to .\ThreatJet_<yyyyMMdd-HHmm>.
+    Assessment directory. Defaults to .\ThreatJET_<yyyyMMdd-HHmm>.
 .PARAMETER AclMode
     Targeted (default) or Full ACL collection. Full is slow on large estates.
 .PARAMETER SkipCollection
@@ -10986,31 +10986,31 @@ function Invoke-ThreatJetAssessment {
 .PARAMETER OpenReport
     Open the HTML report when finished.
 .EXAMPLE
-    Invoke-ThreatJetAssessment
+    Invoke-ThreatJETAssessment
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -AclMode Full -OpenReport
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -AclMode Full -OpenReport
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -IncludeInventory
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -IncludeInventory
     Full assessment plus a complete object inventory for hunting and scoping.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -BaselinePath C:\Audit\Q2\AD_Assessment_Findings.csv
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -BaselinePath C:\Audit\Q2\AD_Assessment_Findings.csv
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -SkipCollection
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -SkipCollection
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Scope LocalHost
+    Invoke-ThreatJETAssessment -Scope LocalHost
     Local privilege-escalation checks only. No AD, no RSAT, no domain required.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -ADObjectType Users,Groups -Scope AD,AttackPath
+    Invoke-ThreatJETAssessment -ADObjectType Users,Groups -Scope AD,AttackPath
     Collect only users and groups, then trace attack paths across them.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Scope LocalHost -IncludeCVEScan -DataminePasswords
+    Invoke-ThreatJETAssessment -Scope LocalHost -IncludeCVEScan -DataminePasswords
     Full local host review: WinPEAS-style checks, open ports, credential datamine, and
     an offline CVE scan of installed software.
 #>
     [CmdletBinding()]
     param(
         [Alias('OutDir')]
-        [string]$Path = (Join-Path $PWD "ThreatJet_$(Get-Date -Format 'yyyyMMdd-HHmm')"),
+        [string]$Path = (Join-Path $PWD "ThreatJET_$(Get-Date -Format 'yyyyMMdd-HHmm')"),
 
         # Preset bundles of options for common assessment shapes. A profile sets defaults;
         # any parameter you pass explicitly still overrides the profile. Omit for the
@@ -11228,7 +11228,7 @@ function Invoke-ThreatJetAssessment {
 
 
     Write-Host ''
-    Write-Host '  ThreatJet Assessment' -ForegroundColor Cyan
+    Write-Host '  ThreatJET Assessment' -ForegroundColor Cyan
     Write-Host "  Version $($script:TJETConfig.CollectorVersion)  |  Schema $($script:TJETConfig.SchemaVersion)" -ForegroundColor DarkGray
     Write-Host "  Output: $Path" -ForegroundColor DarkGray
     Write-Host ''
@@ -11263,7 +11263,7 @@ function Invoke-ThreatJetAssessment {
             $exportArgs = @{ Path = $Path; AclMode = $AclMode; Include = $include.ToArray() }
             if ($Server)     { $exportArgs['Server'] = $Server }
             if ($Credential) { $exportArgs['Credential'] = $Credential }
-            Export-ThreatJetData @exportArgs | Out-Null
+            Export-ThreatJETData @exportArgs | Out-Null
         }
         else {
             Write-TJETLog WARNING 'No collection scope selected.'
@@ -11279,7 +11279,7 @@ function Invoke-ThreatJetAssessment {
     if ($CVEDatabasePath)  { $cveArgs['CVEDatabasePath'] = $CVEDatabasePath }
     if ($SuppressionPath)  { $cveArgs['SuppressionPath'] = $SuppressionPath }
 
-    $findings = Invoke-ThreatJetCorrelation -Path $Path -PassThru `
+    $findings = Invoke-ThreatJETCorrelation -Path $Path -PassThru `
         -SkipAttackPath:(-not $runAttack) @cveArgs
 
     # Compute + persist coverage before the report so the report can render it. This is
@@ -11293,7 +11293,7 @@ function Invoke-ThreatJetAssessment {
     # RESOLVED / PERSISTENT) can be rendered in the HTML, not just written to a CSV.
     if ($BaselinePath) {
         if (Test-Path $BaselinePath) {
-            $diff = Compare-ThreatJetBaseline `
+            $diff = Compare-ThreatJETBaseline `
                 -CurrentPath (Join-Path $Path 'AD_Assessment_Findings.csv') `
                 -BaselinePath $BaselinePath
 
@@ -11306,8 +11306,8 @@ function Invoke-ThreatJetAssessment {
         }
     }
 
-    $reportPath = Join-Path $Path 'ThreatJet_Report.html'
-    New-ThreatJetReport -Path $Path -ReportPath $reportPath | Out-Null
+    $reportPath = Join-Path $Path 'ThreatJET_Report.html'
+    New-ThreatJETReport -Path $Path -ReportPath $reportPath | Out-Null
 
     # Remediation deliverable: fix steps + specific (guarded) command syntax per finding.
     New-TJETRemediationReport -Path $Path | Out-Null
@@ -11380,9 +11380,9 @@ function Invoke-ThreatJetAssessment {
 
 
 # ==========================================================================
-# SOURCE: Public\Invoke-ThreatJetCorrelation.ps1
+# SOURCE: Public\Invoke-ThreatJETCorrelation.ps1
 # ==========================================================================
-function Invoke-ThreatJetCorrelation {
+function Invoke-ThreatJETCorrelation {
 
     [CmdletBinding()]
 
@@ -11390,7 +11390,7 @@ function Invoke-ThreatJetCorrelation {
 
         [Alias('InDir','InputPath')]
         [string]
-        $Path = (Join-Path $PWD "ThreatJet_Output"),
+        $Path = (Join-Path $PWD "ThreatJET_Output"),
 
         [switch]
         $PassThru,
@@ -11567,9 +11567,9 @@ function Invoke-ThreatJetCorrelation {
     Export-Findings @efArgs | Out-Null
 
 
-    # [FIX] Also emit JSON. Export-ThreatJetJSON existed but was never called by
+    # [FIX] Also emit JSON. Export-ThreatJETJSON existed but was never called by
     # anything, so the JSON artifact the baseline workflow expects was never created.
-    Export-ThreatJetJSON `
+    Export-ThreatJETJSON `
         -Path $Path
 
 
@@ -11586,9 +11586,9 @@ function Invoke-ThreatJetCorrelation {
 
 
 # ==========================================================================
-# SOURCE: Public\New-ThreatJetReport.ps1
+# SOURCE: Public\New-ThreatJETReport.ps1
 # ==========================================================================
-function New-ThreatJetReport {
+function New-ThreatJETReport {
 <#
 .SYNOPSIS
     Generates an interactive HTML assessment report.
@@ -11612,14 +11612,14 @@ function New-ThreatJetReport {
     [CmdletBinding()]
     param(
         [Alias('InDir','InputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [Alias('OutputPath')]
         [string]$ReportPath
     )
 
     if (-not $ReportPath) {
-        $ReportPath = Join-Path $Path 'ThreatJet_Report.html'   # lint:allow-param-assign
+        $ReportPath = Join-Path $Path 'ThreatJET_Report.html'   # lint:allow-param-assign
     }
 
     Write-TJETLog INFO 'Generating HTML assessment report'
@@ -11627,7 +11627,7 @@ function New-ThreatJetReport {
     $findingsFile = Join-Path $Path 'AD_Assessment_Findings.csv'
 
     if (-not (Test-Path $findingsFile)) {
-        Write-TJETLog ERROR "Findings file not found: $findingsFile. Run Invoke-ThreatJetCorrelation first."
+        Write-TJETLog ERROR "Findings file not found: $findingsFile. Run Invoke-ThreatJETCorrelation first."
         return
     }
 
@@ -12261,7 +12261,7 @@ function exportVisible() {
   var blob = new Blob([out.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'ThreatJet_Filtered.csv';
+  a.download = 'ThreatJET_Filtered.csv';
   a.click();
 }
 
@@ -12371,14 +12371,14 @@ sortTable(1);
 function Show-TJETMenu {
 <#
 .SYNOPSIS
-    Interactive menu for ThreatJet. Answer prompts instead of remembering flags.
+    Interactive menu for ThreatJET. Answer prompts instead of remembering flags.
 .DESCRIPTION
     A front end over the exported commands. After loading the toolkit (dot-source the
     standalone file, or import the module), run Show-TJETMenu and choose what to do. It
     builds the correct parameter set from your answers and calls the real commands, so
     the menu can never do anything the commands cannot.
 
-        . .\ThreatJet.ps1
+        . .\ThreatJET.ps1
         Show-TJETMenu
 #>
     [CmdletBinding()]
@@ -12556,7 +12556,7 @@ public static class TJETVt {
         Read-Host '  Press Enter to return to the menu' | Out-Null
     }
 
-    $defaultOut = Join-Path $PWD "ThreatJet_$(Get-Date -Format 'yyyyMMdd-HHmm')"
+    $defaultOut = Join-Path $PWD "ThreatJET_$(Get-Date -Format 'yyyyMMdd-HHmm')"
 
     # Shared production options: pin a DC and optionally throttle. Returns a hashtable
     # of extra splat args (empty when the user takes the defaults).
@@ -12598,7 +12598,7 @@ public static class TJETVt {
         Invoke-MenuAction {
             $splat = @{ Profile = $chosen; Path = $outPath; OpenReport = $open }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12618,7 +12618,7 @@ public static class TJETVt {
             if ($datamine)  { $splat['DataminePasswords'] = $true }
             if ($cve)       { $splat['IncludeCVEScan'] = $true; $splat['CVEDatabasePath'] = $cveDb }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12656,7 +12656,7 @@ public static class TJETVt {
             $splat = @{ Path = $outPath; Scope = $scope; AclMode = $aclMode; OpenReport = $open }
             if ($adTypes.Count -gt 0) { $splat['ADObjectType'] = $adTypes }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12672,7 +12672,7 @@ public static class TJETVt {
             $splat = @{ Path = $outPath; Scope = @('LocalHost'); OpenReport = $open }
             if ($datamine) { $splat['DataminePasswords'] = $true }
             if ($cve)      { $splat['IncludeCVEScan'] = $true; $splat['CVEDatabasePath'] = $cveDb }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12706,7 +12706,7 @@ public static class TJETVt {
         }
         $open = Read-YesNo 'Open the HTML report when done?' $true
         Invoke-MenuAction {
-            Invoke-ThreatJetAssessment -Path $inPath -SkipCollection -OpenReport:$open
+            Invoke-ThreatJETAssessment -Path $inPath -SkipCollection -OpenReport:$open
         }
     }
 
@@ -12718,7 +12718,7 @@ public static class TJETVt {
             Read-Host '  Press Enter' | Out-Null; return
         }
         Invoke-MenuAction {
-            Compare-ThreatJetBaseline -CurrentPath $current -BaselinePath $baseline
+            Compare-ThreatJETBaseline -CurrentPath $current -BaselinePath $baseline
         }
     }
 
@@ -12738,9 +12738,9 @@ public static class TJETVt {
         Write-MenuHeader
 
         # Guard: the toolkit functions must be loaded first.
-        if (-not (Get-Command Invoke-ThreatJetAssessment -ErrorAction SilentlyContinue)) {
+        if (-not (Get-Command Invoke-ThreatJETAssessment -ErrorAction SilentlyContinue)) {
             Write-Host '  Toolkit not loaded. Dot-source the file first:' -ForegroundColor Red
-            Write-Host '      . .\ThreatJet.ps1' -ForegroundColor White
+            Write-Host '      . .\ThreatJET.ps1' -ForegroundColor White
             return
         }
 
