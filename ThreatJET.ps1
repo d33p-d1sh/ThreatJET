@@ -8,8 +8,8 @@
     radius), offline module-free CVE scanning ranked by CVSS, and an interactive HTML
     report with safety-guarded remediation. Collection never writes to Active Directory.
 
-    Version 2.4.0   Generated 2026-10-19 23:12
-    SourceHash: e59d076648087669f6ed6e959397935c495798e002b6b8d4d72f0dbfab18d6c2
+    Version 2.5.1   Generated 2026-10-21 23:28
+    Build note: reviewed GitHub variant of the uploaded v2.5.1 source; verify by Git commit SHA.
 
     Author:  Melvin Salyers (d33p-d1sh)
     Project: https://github.com/d33p-d1sh/ThreatJet
@@ -39,7 +39,7 @@
     never run on their own.
 
     Load it by dot-sourcing, then run the menu:
-        . .\ThreatJet.ps1
+        . .\ThreatJET.ps1
         Show-TJETMenu
 #>
 
@@ -848,9 +848,9 @@ function Get-TJETBlastRadius {
 # ==========================================================================
 $script:TJETConfig = @{
     
-    CollectorVersion = "2.4.0"
+    CollectorVersion = "2.5.1"
 
-    CorrelationVersion = "2.4.0"
+    CorrelationVersion = "2.5.1"
 
     # 1.4: the findings CSV carries RunId and Finding_Type columns.
     # 1.5: CVE findings aggregated per product (Finding_Type 'Vulnerability'); CVE_By_Product.csv
@@ -858,7 +858,11 @@ $script:TJETConfig = @{
     # 1.6: CVE DB schema v2 (unaffected_spec, cvss_vector, kev, epss); CVE artifacts gain KEV /
     #      EPSS / vendor-match / outcome columns; Users audit gains Resultant_PSO; assessment
     #      summary gains Vulnerable_Products / Vulnerable_CVEs(_KEV). Additive, backward-compatible.
-    SchemaVersion = "1.6"
+    # 1.7: Computers audit gains a Name column (was missing, breaking INF-* targets). CVE scan
+    #      counts ONLY confirmed (version-in-range) matches as vulnerabilities; Unknown-outcome
+    #      matches are recorded in CVE_Matches.csv but not counted, and CVE_By_Product.csv gains
+    #      an Unconfirmed_Count column. Additive, backward-compatible.
+    SchemaVersion = "1.7"
 
     # Filesystem credential datamining is OFF by default: it reads file contents and can
     # be slow on a large disk. Enable via -DataminePasswords on the orchestrator.
@@ -2756,12 +2760,42 @@ Get-ADPrincipalGroupMembership -Identity '$t' | Select-Object Name, Distinguishe
 
         # --- Local host -------------------------------------------------------------
         'LOCAL-008' {
-            # Built-in Administrator not token-filtered by UAC.
+            # UAC weakened. The detector (UACConfig) fires on EnableLUA=0 (UAC disabled) or
+            # FilterAdministratorToken=0 (built-in Administrator not in Admin Approval Mode).
+            # Both values live under ...\Policies\System. Remediate the setting the finding
+            # actually names -- NOT LocalAccountTokenFilterPolicy, which is a different control.
+            if ($t -match '(?i)FilterAdministratorToken') {
+                return Cmd @"
+# Put the built-in Administrator into Admin Approval Mode (FilterAdministratorToken = 1).
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name FilterAdministratorToken -ErrorAction SilentlyContinue
+# Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name FilterAdministratorToken -Value 1 -Type DWord
+"@ 'Caution' 'Enabling Admin Approval Mode for the built-in Administrator changes its elevation behaviour. Test remote administration tooling before uncommenting the Set-ItemProperty line.'
+            }
             return Cmd @"
-# Enable UAC token filtering for the built-in Administrator (LocalAccountTokenFilterPolicy = 0).
-Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name LocalAccountTokenFilterPolicy -ErrorAction SilentlyContinue
-# Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name LocalAccountTokenFilterPolicy -Value 0 -Type DWord
-"@ 'Caution' 'Changing UAC remote-token behaviour can affect remote administration tooling. Test before uncommenting the Set-ItemProperty line.'
+# Re-enable User Account Control (EnableLUA = 1). A REBOOT is required for this to take effect.
+Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name EnableLUA -ErrorAction SilentlyContinue
+# Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name EnableLUA -Value 1 -Type DWord
+# A restart is required for EnableLUA to take effect.
+"@ 'Caution' 'Re-enabling UAC requires a reboot and changes elevation behaviour host-wide. Confirm a maintenance window before uncommenting the Set-ItemProperty line.'
+        }
+
+        'LOCAL-019' {
+            # Credential stored in a REGISTRY value (autologon DefaultPassword, VNC, SNMP, ...).
+            # Unlike LOCAL-006 (credential FILES), the target is a registry path\value, so the
+            # remediation clears the VALUE -- never a Get-Item/Remove-Item file command.
+            if ($t -match '(?i)Winlogon|DefaultPassword|AutoAdminLogon') {
+                return Cmd @"
+# Autologon credential in the registry. Check PRESENCE only; never print the secret.
+$winlogonKey = Get-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction SilentlyContinue
+if ($null -ne $winlogonKey) {
+    [PSCustomObject]@{ DefaultPasswordPresent = @($winlogonKey.Property) -contains 'DefaultPassword' }
+}
+# Remove-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultPassword -WhatIf
+# Set-ItemProperty    'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name AutoAdminLogon -Value '0' -WhatIf
+# IMPORTANT: clearing the value does not undo exposure -- ROTATE the account's password.
+"@ 'Caution' 'Registry credential, not a file. Clear the value and rotate the exposed password; confirm nothing relies on unattended logon before applying.'
+            }
+            return NoCmd 'Credential stored in a registry value. Inspect the key named in the finding, remove the credential value, and rotate the exposed secret. No safe single generated command -- the key and value differ per credential type.'
         }
 
         'LOCAL-015' {
@@ -3239,7 +3273,12 @@ function Import-AssessmentData {
             }
         }
         else {
-            Write-TJETLog WARNING "$key source not found: $file (dependent detectors will be skipped)"
+            # A MISSING optional source is not a failure: the collector writes no file when it
+            # found zero objects of that type (ServiceAccounts/FGPP/ADCS are commonly empty), or
+            # the area was not selected. A genuine collection failure is logged as an ERROR by
+            # the collector at collection time. So this is INFO, not a WARNING, and the wording
+            # distinguishes "none present / not run" from a failure.
+            Write-TJETLog INFO "${key}: no data collected (no $key objects present, or this area was not run); its detectors are skipped."
         }
 
         $loaded[$key] = $rows
@@ -3616,11 +3655,11 @@ function Get-TJETSuppressions {
     all targets. An expired suppression (Expires in the past) does NOT suppress -- it is
     surfaced so a lapsed exception is visible rather than silently permanent.
 .PARAMETER Path
-    Path to the suppressions JSON. Defaults to ThreatJet.Suppressions.json in the current
+    Path to the suppressions JSON. Defaults to ThreatJET.Suppressions.json in the current
     directory.
 #>
     param(
-        [string]$Path = (Join-Path $PWD 'ThreatJet.Suppressions.json')
+        [string]$Path = (Join-Path $PWD 'ThreatJET.Suppressions.json')
     )
 
     if (-not (Test-Path $Path)) { return @() }
@@ -3698,7 +3737,7 @@ function Add-TJETSuppressionState {
 #>
     param(
         [Parameter(Mandatory)][AllowEmptyCollection()]$Findings,
-        [string]$SuppressionPath = (Join-Path $PWD 'ThreatJet.Suppressions.json')
+        [string]$SuppressionPath = (Join-Path $PWD 'ThreatJET.Suppressions.json')
     )
 
     $suppressions = Get-TJETSuppressions -Path $SuppressionPath
@@ -4368,7 +4407,7 @@ function Collect-Computers {
     }
 
     $properties = @(
-        'distinguishedName','objectGUID','objectSid','sAMAccountName','dNSHostName',
+        'distinguishedName','objectGUID','objectSid','sAMAccountName','dNSHostName','name','cn',
         'operatingSystem','operatingSystemVersion','userAccountControl','primaryGroupID',
         'pwdLastSet','whenCreated','lastLogonTimestamp','description',
         'msDS-AllowedToActOnBehalfOfOtherIdentity','msDS-KeyCredentialLink',
@@ -4388,6 +4427,16 @@ function Collect-Computers {
         $record['DistinguishedName'] = Get-TJETLdapProperty $flat 'distinguishedname'
         $record['SamAccountName']    = Get-TJETLdapProperty $flat 'samaccountname'
         $record['DNSHostName']       = Get-TJETLdapProperty $flat 'dnshostname'
+
+        # [FIX] The INF-* detectors address the host by $computer.Name, but this record
+        # never carried a Name field, so every infrastructure finding rendered as
+        # "(unnamed object)". Derive it from the object name/CN, falling back to the
+        # sAMAccountName (trailing '$' trimmed) and then the DNS host name.
+        $computerName = Get-TJETLdapProperty $flat 'name'
+        if ([string]::IsNullOrWhiteSpace($computerName)) { $computerName = Get-TJETLdapProperty $flat 'cn' }
+        if ([string]::IsNullOrWhiteSpace($computerName)) { $computerName = ("$($record['SamAccountName'])").TrimEnd('$') }
+        if ([string]::IsNullOrWhiteSpace($computerName)) { $computerName = $record['DNSHostName'] }
+        $record['Name']              = $computerName
         $record['ObjectGUID']        = Get-TJETLdapProperty $flat 'objectguid'
         $record['ObjectSID']         = Get-TJETLdapProperty $flat 'objectsid'
         $record['Enabled']           = (-not (Test-TJETUacFlag $uac 'Disabled'))
@@ -5352,20 +5401,12 @@ function Collect-LocalHost {
         }
     }
 
-    # Registry autologon
-    try {
-        $winlogon = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -ErrorAction SilentlyContinue
-
-        if ($winlogon.DefaultPassword) {
-            New-LocalRecord -Check 'StoredCredential' -Category 'Credential Exposure' `
-                -Item 'Winlogon DefaultPassword' `
-                -Detail "Autologon password stored in the registry for user $($winlogon.DefaultUserName)." `
-                -RiskHint 'The password is readable in cleartext by any local user.'
-        }
-    }
-    catch {
-        Write-Verbose 'Winlogon check skipped.'
-    }
+    # Registry autologon is NOT reported here. It is a REGISTRY credential, already collected
+    # by Collect-LocalHostExtended's RegistryCredential check (-> LOCAL-019), which classifies
+    # and remediates it correctly. Emitting it here as a StoredCredential (-> LOCAL-006) both
+    # double-reported the same autologon password and handed it LOCAL-006's file-oriented
+    # remediation (Get-Item on 'Winlogon DefaultPassword'), which is meaningless for a registry
+    # value. LOCAL-006 now covers only genuine credential FILES (GPP, unattend).
 
     # ----------------------------------------------------- Token privileges ---
     if (-not $SkipTokenChecks) {
@@ -6044,8 +6085,14 @@ function Collect-LocalHostExtended {
     catch { }
 
     try {
+        # Exclude the admin shares (names ending in '$') AND the two default domain-
+        # controller replication shares, NETLOGON and SYSVOL. Those are present on every
+        # DC by design, so flagging them as "non-administrative shares" was pure noise on
+        # the GOAD runs. A genuinely risky SYSVOL/NETLOGON is one with weak ACLs, which is
+        # a permissions finding, not a presence finding.
+        $defaultDcShares = @('NETLOGON','SYSVOL')
         $shares = Get-CimInstance -ClassName Win32_Share -ErrorAction Stop |
-            Where-Object { $_.Name -notmatch '\$$' }
+            Where-Object { $_.Name -notmatch '\$$' -and $defaultDcShares -notcontains $_.Name }
 
         foreach ($share in $shares) {
 
@@ -6563,9 +6610,8 @@ function Collect-OpenPorts {
     Enumerates listening TCP/UDP ports and maps them to owning processes and services.
 .DESCRIPTION
     A listening port is attack surface. This records every listener, the process behind
-    it, and whether it is bound to all interfaces (0.0.0.0 / ::) versus loopback only --
-    the distinction between "reachable from the network" and "local only" is what makes a
-    port interesting.
+    (0.0.0.0 / ::) versus a specific interface versus loopback only. Binding is
+    not proof of remote reachability; host and network firewall rules must be checked.
 
     The detector flags ports associated with commonly-abused or legacy-cleartext
     services (SMB, RDP, WinRM, RPC, LDAP, Telnet, FTP, and so on). This is inventory plus
@@ -6783,14 +6829,14 @@ function Collect-FilesystemCredentials {
         # OS telemetry shapes
         'telemetry*.json'; '*.ASM-*.json'; 'MpEnrollment*'; '*.etl'
         # ThreatJET's own artifacts (never scan what the tool produced or is)
-        'ThreatJet*'; 'TJET*'; '*.Standalone.ps1'
+        'ThreatJET*'; 'TJET*'; '*.Standalone.ps1'
         'AD_*_Audit.csv'; 'AD_Assessment_Findings.csv'; 'AD_Domain_Summary.csv'
         'ATTACK_Coverage.csv'; 'Assessment_Summary.csv'; 'REL_*.csv'
-        'Coverage.json'; 'Run_Manifest.json'; 'ThreatJet.Suppressions.json'
-        'Remediation_Report.html'; 'Remediation_Script.ps1'; 'ThreatJet_Report.html'
+        'Coverage.json'; 'Run_Manifest.json'; 'ThreatJET.Suppressions.json'
+        'Remediation_Report.html'; 'Remediation_Script.ps1'; 'ThreatJET_Report.html'
     )
     # A ThreatJET fingerprint in file CONTENT -- the bulletproof self-exclusion.
-    $selfSignature = 'ThreatJET|Get-TJET|Invoke-ThreatJet|TJET-\d{8}|FilesystemCredential'
+    $selfSignature = 'ThreatJET|Get-TJET|Invoke-ThreatJET|TJET-\d{8}|FilesystemCredential'
 
     function Test-ScanExcluded {
         param([System.IO.FileInfo]$File)
@@ -6831,9 +6877,13 @@ function Collect-FilesystemCredentials {
     }
 
     # Filenames that are interesting on their own.
+    # NOTE: '*.rdp' is deliberately NOT in this filename list. A .rdp file exists in nearly
+    # every profile (mstsc writes Default.rdp) and almost never holds a secret, so matching
+    # it by name alone produced the Default.rdp false positive. RDP files are handled by a
+    # dedicated content-gated pass below that fires only on a stored-password line.
     $secretFilePatterns = @(
         '*.kdbx','*.ppk','id_rsa','id_dsa','id_ecdsa','id_ed25519','*.pfx','*.pem'
-        'web.config','app.config','*.rdp','unattend.xml','sysprep.xml','autounattend.xml'
+        'web.config','app.config','unattend.xml','sysprep.xml','autounattend.xml'
         '.env','credentials','credentials.xml','*.kdb','*.psafe3','*.agilekeychain'
         'wp-config.php','settings.py','application.properties','.npmrc','.git-credentials'
     )
@@ -6884,6 +6934,39 @@ function Collect-FilesystemCredentials {
             }
             catch { }
         }
+
+        # ---- pass 1b: RDP files, but only when a password is actually stored ---
+        # A .rdp file only carries a credential when it has a 'password 51:b:<DPAPI blob>'
+        # line. Flag on that content, never on the filename, so Default.rdp and other
+        # password-less connection files do not generate a credential finding.
+        try {
+            $rdpFiles = Get-ChildItem -Path $root -Filter '*.rdp' -Recurse -File `
+                -ErrorAction SilentlyContinue -Force |
+                Select-Object -First 50
+
+            foreach ($file in $rdpFiles) {
+
+                if ($findingCount -ge $MaxFindings) { break }
+                if (Test-ScanExcluded $file) { continue }
+
+                $hasStoredPassword = $false
+                try {
+                    $hasStoredPassword = [bool](Select-String -Path $file.FullName `
+                        -Pattern '(?im)^\s*password\s+51:b:\S' -ErrorAction SilentlyContinue)
+                }
+                catch { }
+
+                if (-not $hasStoredPassword) { continue }   # e.g. Default.rdp -- no secret
+
+                New-CredFileRecord -File $file.FullName `
+                    -Detail "RDP connection file with a stored (DPAPI-encrypted) password: $($file.Name)" `
+                    -RiskHint 'The file stores a reusable password (DPAPI-bound to this user and host). Remove the saved password or the file.' `
+                    -Line 0
+
+                $findingCount++
+            }
+        }
+        catch { }
 
         # ---- pass 2: content grep ------------------------------------------
         try {
@@ -8011,6 +8094,45 @@ New-Finding `
 # ==========================================================================
 # SOURCE: Correlation\Invoke-ExposureFindings.ps1
 # ==========================================================================
+function Get-TJETPortBindScope {
+<#
+.SYNOPSIS
+    Classifies a local listener address without assuming that a non-wildcard bind is loopback.
+.DESCRIPTION
+    A wildcard or specific-interface listener is a potential network exposure, not proof
+    that a remote client can connect through the host or network firewalls. Only a
+    verified loopback address is downgraded by the PORT-001 detector.
+#>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][string]$LocalAddress = '',
+        [bool]$BoundToAll = $false
+    )
+
+    $address = $LocalAddress.Trim()
+    # Brackets can appear around IPv6 literals in some inventory exports.
+    if ($address.StartsWith('[') -and $address.EndsWith(']')) {
+        $address = $address.Substring(1, $address.Length - 2)
+    }
+
+    if ($address -eq '0.0.0.0' -or $address -eq '::') {
+        return [PSCustomObject]@{ Kind = 'Wildcard'; Rank = 3; LoopbackOnly = $false; Scope = 'all local interfaces (firewall reachability not verified)' }
+    }
+    if ($address -match '^127(?:\.\d{1,3}){3}$' -or $address -eq '::1' -or
+        $address -match '(?i)^::ffff:127\.' -or $address -eq 'localhost') {
+        return [PSCustomObject]@{ Kind = 'Loopback'; Rank = 0; LoopbackOnly = $true; Scope = "loopback only ($address)" }
+    }
+    if ([string]::IsNullOrWhiteSpace($address)) {
+        if ($BoundToAll) {
+            return [PSCustomObject]@{ Kind = 'Wildcard'; Rank = 3; LoopbackOnly = $false; Scope = 'all local interfaces (inferred from inventory; firewall reachability not verified)' }
+        }
+        return [PSCustomObject]@{ Kind = 'Unknown'; Rank = 1; LoopbackOnly = $false; Scope = 'unknown bind address (remote reachability not verified)' }
+    }
+
+    return [PSCustomObject]@{ Kind = 'Specific'; Rank = 2; LoopbackOnly = $false; Scope = "specific interface $address (firewall reachability not verified)" }
+}
+
+
 function Invoke-ExposureFindings {
 <#
 .SYNOPSIS
@@ -8023,7 +8145,7 @@ function Invoke-ExposureFindings {
     Port findings are risk-classified: a listening service that is legacy-cleartext
     (Telnet, FTP, rlogin) or a high-value lateral-movement surface (SMB, RDP, WinRM,
     RPC, LDAP, WSMan) is reported, and binding to all interfaces raises the severity
-    over a loopback-only bind. An ordinary ephemeral or loopback listener is inventory,
+    over a verified loopback-only bind. An ordinary ephemeral or loopback listener is inventory,
     not a finding, so the port list does not drown the report.
 #>
     param($Context)
@@ -8067,54 +8189,76 @@ function Invoke-ExposureFindings {
         389   = @{ Name = 'LDAP';       Severity = 'Low';    Cleartext = $true;  Note = 'LDAP without TLS exposes directory queries and simple-bind credentials.' }
     }
 
+    # ------------------------------------------------------- ports (PORT-001) ---
+    # Aggregate listeners by port/protocol to avoid duplicate IPv4/IPv6 findings.
+    # Prefer wildcard, then a specific interface, then unknown, then loopback. A
+    # specific-interface listener is NOT loopback-only, and none of these bindings
+    # proves remote reachability through host/network firewalls.
+    $portAgg = [ordered]@{}
     foreach ($record in $records) {
-
-        # ------------------------------------------------------- ports (PORT-001) ---
-        if ($record.Check -eq 'OpenPort') {
-
-            $portNumber = 0
-            [int]::TryParse("$($record.Port_Number)", [ref]$portNumber) | Out-Null
-
-            $class = $portClasses[$portNumber]
-
-            if (-not $class) { continue }        # not a notable port
-
-            $boundAll = ConvertTo-Bool $record.Port_BoundToAll
-
-            # Loopback-only bind of an otherwise notable service is much lower risk.
-            $severity = $class.Severity
-
-            if (-not $boundAll) {
-                $severity = switch ($severity) { 'High' { 'Low' } 'Medium' { 'Low' } default { 'Info' } }
+        if ($record.Check -ne 'OpenPort') { continue }
+        $portNumber = 0
+        [int]::TryParse("$($record.Port_Number)", [ref]$portNumber) | Out-Null
+        if (-not $portClasses[$portNumber]) { continue }   # not a notable port
+        $key = "$portNumber/$($record.Port_Protocol)"
+        $binding = Get-TJETPortBindScope -LocalAddress "$($record.Port_LocalAddress)" -BoundToAll (ConvertTo-Bool $record.Port_BoundToAll)
+        if (-not $portAgg.Contains($key)) {
+            $portAgg[$key] = [PSCustomObject]@{
+                Record = $record
+                Binding = $binding
+                Port = $portNumber
+                Addresses = (New-Object System.Collections.Generic.List[string])
             }
-
-            $scope = if ($boundAll) { 'all interfaces (network-reachable)' } else { 'loopback only' }
-
-            # Resolve the owning process to full detail if the process collector ran.
-            $proc = $processByPid["$($record.Port_PID)"]
-
-            $procDetail = ''
-            if ($proc) {
-                $procDetail = " Process: $($proc.Process_Path)"
-                if ($proc.Process_CommandLine) { $procDetail += " [cmdline: $($proc.Process_CommandLine)]" }
-                if ($proc.Process_Owner)       { $procDetail += " (owner: $($proc.Process_Owner))" }
-                if ($proc.Process_Signed -and $proc.Process_Signed -ne 'Valid' -and $proc.Process_Signed -ne 'unknown') {
-                    $procDetail += " SIGNATURE: $($proc.Process_Signed)"
-                }
-            }
-
-            New-Finding `
-                -Finding_ID 'PORT-001' `
-                -Severity $severity `
-                -Confidence 'High' `
-                -Category 'Network Exposure' `
-                -Target "$scannedHost`:$($record.Port_Number)/$($record.Port_Protocol)" `
-                -Finding "Listening service on port $($record.Port_Number) ($($class.Name))." `
-                -Evidence "$($class.Name) listening on $scope via process '$($record.Port_Process)' (PID $($record.Port_PID)). $($class.Note)$procDetail" `
-                -Recommendation "Confirm this service is required and correctly scoped. If not needed, disable it; if needed, restrict it to the required networks by firewall and require encrypted/authenticated access."
-
-            continue
         }
+        elseif ($binding.Rank -gt $portAgg[$key].Binding.Rank) {
+            $portAgg[$key].Record = $record
+            $portAgg[$key].Binding = $binding
+        }
+        $address = "$($record.Port_LocalAddress)".Trim()
+        if (-not [string]::IsNullOrWhiteSpace($address) -and -not $portAgg[$key].Addresses.Contains($address)) {
+            $portAgg[$key].Addresses.Add($address)
+        }
+    }
+
+    foreach ($agg in $portAgg.Values) {
+
+        $record  = $agg.Record
+        $class   = $portClasses[$agg.Port]
+        $binding = $agg.Binding
+
+        # Only a verified loopback listener warrants the loopback severity reduction.
+        $severity = $class.Severity
+        if ($binding.LoopbackOnly) {
+            $severity = switch ($severity) { 'High' { 'Low' } 'Medium' { 'Low' } default { 'Info' } }
+        }
+        $scope = $binding.Scope
+        $addressEvidence = if ($agg.Addresses.Count -gt 0) { " Observed bind address(es): $($agg.Addresses -join ', ')." } else { '' }
+
+        # Resolve the owning process to full detail if the process collector ran.
+        $proc = $processByPid["$($record.Port_PID)"]
+
+        $procDetail = ''
+        if ($proc) {
+            $procDetail = " Process: $($proc.Process_Path)"
+            if ($proc.Process_CommandLine) { $procDetail += " [cmdline: $($proc.Process_CommandLine)]" }
+            if ($proc.Process_Owner)       { $procDetail += " (owner: $($proc.Process_Owner))" }
+            if ($proc.Process_Signed -and $proc.Process_Signed -ne 'Valid' -and $proc.Process_Signed -ne 'unknown') {
+                $procDetail += " SIGNATURE: $($proc.Process_Signed)"
+            }
+        }
+
+        New-Finding `
+            -Finding_ID 'PORT-001' `
+            -Severity $severity `
+            -Confidence $(if ($binding.Kind -eq 'Unknown') { 'Medium' } else { 'High' }) `
+            -Category 'Network Exposure' `
+            -Target "$scannedHost`:$($record.Port_Number)/$($record.Port_Protocol)" `
+            -Finding "Listening service on port $($record.Port_Number) ($($class.Name))." `
+            -Evidence "$($class.Name) listening on $scope via process '$($record.Port_Process)' (PID $($record.Port_PID)).$addressEvidence $($class.Note)$procDetail" `
+            -Recommendation "Confirm this service is required and correctly scoped. If not needed, disable it; if needed, restrict it to the required networks by firewall and require encrypted/authenticated access."
+    }
+
+    foreach ($record in $records) {
 
         # ------------------------------------------------- patch level (PATCH-001) ---
         if ($record.Check -eq 'PatchLevel') {
@@ -8143,8 +8287,15 @@ function Invoke-ExposureFindings {
         if ($record.Check -eq 'RunningProcess') {
 
             $fromWritable = ConvertTo-Bool $record.Process_FromUserWritable
-            $badSignature = ($record.Process_Signed -and
-                             $record.Process_Signed -notin 'Valid','unknown','')
+            # Only a genuine signature PROBLEM is suspicious: HashMismatch (binary modified
+            # after signing) or NotTrusted (signed, but the chain does not validate). An
+            # unsigned binary (NotSigned) and a signature lookup failure ('unknown' /
+            # UnknownError) are NOT suspicious on their own -- many legitimate in-box and
+            # third-party tools (e.g. the QEMU/Proxmox guest agents qemu-ga.exe and
+            # blnsvr.exe) are unsigned or fail lookup on a stripped host, and flagging those
+            # drowned the real signal. Unsigned binaries running from a user-writable path
+            # are still caught by the $fromWritable signal.
+            $badSignature = ("$($record.Process_Signed)" -in 'HashMismatch','NotTrusted')
 
             # Only surface processes that are actually notable: running from a
             # user-writable location, or carrying an invalid signature. The full
@@ -8880,16 +9031,17 @@ function Invoke-LocalFindings {
         if (-not $mapping) { continue }
 
         # In a privileged run, drop the checks that only matter because the operator
-        # is already an administrator. TokenPrivilege is the main one: an admin token
-        # legitimately carries SeDebug/SeBackup/SeRestore/SeTakeOwnership.
+        # is already an administrator. TokenPrivilege (LOCAL-007) is the main one: an
+        # admin token legitimately carries SeDebug/SeBackup/SeRestore/SeTakeOwnership --
+        # and SeImpersonate/SeAssignPrimaryToken too. An earlier version exempted the
+        # latter two on the theory they imply a service-context route, but the token this
+        # check enumerates in an admin-scoped run IS the operator's own, which inherently
+        # holds them, so keeping them reported the assessment's own token as an escalation
+        # route (confirmed false positive on elevated GOAD DC scans). There is no way to
+        # tell the operator's own SeImpersonate from a service account's here, so in an
+        # admin-scoped run every non-unprivileged check is suppressed without exception.
         if ($scopeToUnprivileged -and -not $mapping.UnprivPath) {
-
-            # SeImpersonatePrivilege is the exception worth keeping: it is held by
-            # service accounts, so its presence still indicates a service-context
-            # escalation route independent of the operator's own rights.
-            if ("$($record.Detail)$($record.Item)" -notmatch '(?i)SeImpersonate|SeAssignPrimaryToken') {
-                continue
-            }
+            continue
         }
 
         $target = $record.Item
@@ -8958,8 +9110,11 @@ function Invoke-OfflineCVEScan {
         overlap. A clear mismatch DOWNGRADES confidence and is annotated (never a hard
         exclude -- publisher strings legitimately differ, e.g. "Mozilla" vs "Mozilla
         Corporation", so excluding would cause false negatives).
-      - OUTCOMES. Affected (version in range), Unaffected (explicitly excluded), or Unknown
-        (version could not be compared) -- Unknown is reported at low confidence, not dropped.
+      - OUTCOMES. Affected (version confirmed in range), Unaffected (explicitly excluded), or
+        Unknown (version could not be compared). Only Affected (confirmed) matches count as
+        vulnerabilities and drive the finding, its severity and the headline count. Unknown
+        matches are recorded in CVE_Matches.csv (Outcome=Unknown) for manual review but are
+        NOT counted or shown as established vulnerabilities.
 
     Prioritisation: KEV (known exploited) outranks everything; then CVSS base score; then
     EPSS. A product with any KEV CVE is raised to at least High.
@@ -9191,6 +9346,8 @@ function Invoke-OfflineCVEScan {
     $allMatches = New-Object System.Collections.Generic.List[object]
     $productFindingCount = 0
     $cveMatchCount = 0
+    $unconfirmedMatchCount = 0
+    $uncertainOnlyProductCount = 0
 
     foreach ($target in $targets) {
 
@@ -9287,8 +9444,48 @@ function Invoke-OfflineCVEScan {
         if ($bestByCve.Count -eq 0) { continue }
 
         # --------------------------------------------- aggregate per product ---
-        $cveMatches = @($bestByCve.Values)
-        $cveMatchCount += $cveMatches.Count
+        # Record EVERY name-matched CVE (confirmed or not) to the per-CVE export so an
+        # analyst can review the unconfirmed ones, then keep ONLY confirmed matches for
+        # the product finding. A match is "confirmed" when the installed version was
+        # definitively inside an affected range/exact spec (Outcome 'Affected'); an
+        # 'Unknown' outcome is a name/loose hit we could NOT verify against the installed
+        # version. Presenting those as established vulnerabilities is exactly the
+        # false-positive case (2017 CVEs vs Server 2022, old CVEs vs a current browser),
+        # so Unknown matches are exported for triage but never counted or shown as vulns.
+        $allCveForProduct = @($bestByCve.Values)
+
+        foreach ($m in $allCveForProduct) {
+            $allMatches.Add([PSCustomObject]@{
+                Product     = $displayName
+                Version     = $target.RawVersion
+                CVE         = $m.CveId
+                CVSS        = if ($null -ne $m.Cvss) { $m.Cvss } else { '' }
+                CVSS_Vector = $m.Vector
+                Severity    = (Get-CvssSeverity $m.Cvss)
+                KEV         = if ($m.Kev) { 'TRUE' } else { '' }
+                EPSS        = $m.Epss
+                Vendor      = $m.Vendor
+                Vendor_Match = $m.VendorMatch
+                Affected_Spec = $m.Spec
+                Confidence  = $m.Confidence
+                Version_Certain = $m.Certain
+                Outcome     = $m.Outcome
+            })
+        }
+
+        $cveMatches       = @($allCveForProduct | Where-Object { $_.Certain })
+        $unconfirmedCount = $allCveForProduct.Count - $cveMatches.Count
+
+        if ($cveMatches.Count -eq 0) {
+            # Nothing confirmed for this product: do not emit a vulnerability finding.
+            # The unconfirmed hits remain in CVE_Matches.csv (Outcome=Unknown) for triage.
+            $uncertainOnlyProductCount++
+            $unconfirmedMatchCount += $unconfirmedCount
+            continue
+        }
+
+        $cveMatchCount         += $cveMatches.Count
+        $unconfirmedMatchCount += $unconfirmedCount
 
         $scored    = @($cveMatches | Where-Object { $null -ne $_.Cvss })
         $worstCvss = if ($scored.Count -gt 0) { ($scored | Sort-Object -Property Cvss -Descending | Select-Object -First 1).Cvss } else { $null }
@@ -9296,7 +9493,6 @@ function Invoke-OfflineCVEScan {
         $worstCve  = if ($worstRow) { $worstRow.CveId } else { '' }
         $worstVec  = if ($worstRow) { $worstRow.Vector } else { '' }
         $bestConf  = ($cveMatches | Sort-Object -Property @{ Expression = { $confRank["$($_.Confidence)"] }; Descending = $true } | Select-Object -First 1).Confidence
-        $anyUncertain = @($cveMatches | Where-Object { -not $_.Certain }).Count -gt 0
 
         $kevMatches = @($cveMatches | Where-Object { $_.Kev })
         $kevCount   = $kevMatches.Count
@@ -9324,7 +9520,7 @@ function Invoke-OfflineCVEScan {
         $worstCvssStr = if ($null -ne $worstCvss) { "$worstCvss" } else { 'n/a' }
         $kevStr   = if ($kevCount -gt 0) { " $kevCount KNOWN-EXPLOITED (KEV)." } else { '' }
         $epssStr  = if ($null -ne $maxEpss) { " Max EPSS $([math]::Round($maxEpss,3))." } else { '' }
-        $triage   = if ($anyUncertain) { ' Some versions could not be compared precisely -- verify against the CVE.' } else { '' }
+        $triage   = if ($unconfirmedCount -gt 0) { " $unconfirmedCount additional name-matched CVE(s) could not be confirmed against the installed version and are listed (Outcome=Unknown) in CVE_Matches.csv for manual review." } else { '' }
 
         New-Finding `
             -Finding_ID 'CVE-PRODUCT' `
@@ -9343,6 +9539,7 @@ function Invoke-OfflineCVEScan {
             Product          = $displayName
             Version          = $target.RawVersion
             CVE_Count        = $cveMatches.Count
+            Unconfirmed_Count = $unconfirmedCount
             KEV_Count        = $kevCount
             Max_EPSS         = if ($null -ne $maxEpss) { [math]::Round($maxEpss,4) } else { '' }
             Worst_CVSS       = if ($null -ne $worstCvss) { $worstCvss } else { '' }
@@ -9353,24 +9550,6 @@ function Invoke-OfflineCVEScan {
             Top_CVEs         = $topStr
         })
 
-        foreach ($m in $cveMatches) {
-            $allMatches.Add([PSCustomObject]@{
-                Product     = $displayName
-                Version     = $target.RawVersion
-                CVE         = $m.CveId
-                CVSS        = if ($null -ne $m.Cvss) { $m.Cvss } else { '' }
-                CVSS_Vector = $m.Vector
-                Severity    = (Get-CvssSeverity $m.Cvss)
-                KEV         = if ($m.Kev) { 'TRUE' } else { '' }
-                EPSS        = $m.Epss
-                Vendor      = $m.Vendor
-                Vendor_Match = $m.VendorMatch
-                Affected_Spec = $m.Spec
-                Confidence  = $m.Confidence
-                Version_Certain = $m.Certain
-                Outcome     = $m.Outcome
-            })
-        }
     }
 
     # ------------------------------------------------------------ exports ---
@@ -9394,7 +9573,7 @@ function Invoke-OfflineCVEScan {
         }
     }
 
-    Write-TJETLog INFO "Offline CVE scan complete: $cveMatchCount CVE match(es) across $productFindingCount vulnerable product(s) of $($targets.Count) scanned."
+    Write-TJETLog INFO "Offline CVE scan complete: $cveMatchCount confirmed CVE match(es) across $productFindingCount vulnerable product(s) of $($targets.Count) scanned. $unconfirmedMatchCount additional name-matched CVE(s) were unconfirmed against the installed version (recorded in CVE_Matches.csv, Outcome=Unknown) and are not counted as vulnerabilities$(if ($uncertainOnlyProductCount -gt 0) { "; $uncertainOnlyProductCount product(s) had only unconfirmed matches and produced no finding" })."
 }
 
 
@@ -9464,9 +9643,9 @@ function Invoke-TrustFindings {
 
 
 # ==========================================================================
-# SOURCE: Reporting\Compare-ThreatJetBaseline.ps1
+# SOURCE: Reporting\Compare-ThreatJETBaseline.ps1
 # ==========================================================================
-function Compare-ThreatJetBaseline {
+function Compare-ThreatJETBaseline {
 <#
 .SYNOPSIS
     Compares two assessment findings files and reports drift.
@@ -9734,9 +9913,9 @@ function Export-Findings {
 
 
 # ==========================================================================
-# SOURCE: Reporting\Export-ThreatJetJSON.ps1
+# SOURCE: Reporting\Export-ThreatJETJSON.ps1
 # ==========================================================================
-function Export-ThreatJetJSON {
+function Export-ThreatJETJSON {
 
 
 param(
@@ -9786,7 +9965,7 @@ function New-AssessmentSummary {
     function Test-Agg($f) {
         ("$($f.Finding_Type)" -eq 'Aggregate') -or ($aggregateIds -contains "$($f.Finding_ID)")
     }
-    # Vulnerability (CVE) findings are a separate risk track (see New-ThreatJetReport); they
+    # Vulnerability (CVE) findings are a separate risk track (see New-ThreatJETReport); they
     # are excluded from the posture severity counts so a pile of CVEs cannot distort the
     # headline, and tallied on their own line instead.
     function Test-Vuln($f) {
@@ -9971,11 +10150,17 @@ function New-TJETRemediationReport {
     Set-Content -Path $ScriptPath -Value ($script -join "`r`n") -Encoding UTF8
 
     # ------------------------------------------------------------- build HTML -----
+    # Every row carries remediation GUIDANCE (the numbered steps). Only some findings also
+    # have an auto-GENERATED command (a safe single cmdlet with the target filled in); the
+    # rest are remediated by hand. Count the latter so the header can state the distinction
+    # explicitly rather than implying every finding ships a command.
+    $htmlWithCmd = 0
     $rows = ''
     foreach ($f in $htmlOrdered) {
         $steps = if ($f.Remediation_Steps) { $f.Remediation_Steps } else { $f.Recommendation }
         $stepsHtml = (Esc $steps) -replace '\r?\n', '<br>'
         $cmd = Get-TJETRemediationCommand -FindingId $f.Finding_ID -Target $f.Target
+        if ($cmd.HasCommand) { $htmlWithCmd++ }
 
         $cmdHtml = ''
         if ($cmd.HasCommand) {
@@ -10038,7 +10223,7 @@ pre.cmd.cmd-caution { border-left:3px solid var(--high); }
 </style></head><body>
 <header>
   <h1>ThreatJET Remediation Report</h1>
-  <div class="sub">$total remediable findings &middot; generated $generated$runIdHtml</div>
+  <div class="sub">$total findings with remediation guidance &middot; $htmlWithCmd with a generated command &middot; $($total - $htmlWithCmd) remediated manually &middot; generated $generated$runIdHtml</div>
 </header>
 <div class="warn">
   <b>Review before running.</b> Commands below are generated with the finding's real target filled in,
@@ -10115,7 +10300,7 @@ function Export-ADObjectInventory {
     [CmdletBinding()]
     param(
         [Alias('OutDir')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateSet('Users','Computers','Groups','GPOs','OrganizationalUnits','Contacts',
                      'ManagedServiceAccounts','ForeignSecurityPrincipals','Containers',
@@ -10459,15 +10644,15 @@ function Export-ADObjectInventory {
 
 
 # ==========================================================================
-# SOURCE: Public\Export-ThreatJetData.ps1
+# SOURCE: Public\Export-ThreatJETData.ps1
 # ==========================================================================
-function Export-ThreatJetData {
+function Export-ThreatJETData {
 <#
 .SYNOPSIS
     Collects Active Directory data to CSV for offline assessment.
 .DESCRIPTION
     Read-only collection. Writes one CSV per data domain into -Path, which is then the
-    input to Invoke-ThreatJetCorrelation.
+    input to Invoke-ThreatJETCorrelation.
 
     Each collector is isolated: a failure in one is logged and the run continues. The
     summary table at the end reports the record count per collector, so a partial or
@@ -10481,14 +10666,14 @@ function Export-ThreatJetData {
     Bypass directory reachability and optional dependency checks. (ThreatJET does not
     require RSAT; the AD/GroupPolicy modules are used as an enhancement when present.)
 .EXAMPLE
-    Export-ThreatJetData -Path C:\Audit
+    Export-ThreatJETData -Path C:\Audit
 .EXAMPLE
-    Export-ThreatJetData -Path C:\Audit -AclMode Full
+    Export-ThreatJETData -Path C:\Audit -AclMode Full
 #>
     [CmdletBinding()]
     param(
         [Alias('OutDir','OutputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateSet('Targeted','Full')]
         [string]$AclMode = 'Targeted',
@@ -10569,7 +10754,7 @@ function Export-ThreatJetData {
 
         $index++
 
-        Write-Progress -Activity 'ThreatJet collection' `
+        Write-Progress -Activity 'ThreatJET collection' `
             -Status "$($collector.Name) ($index of $($collectors.Count))" `
             -PercentComplete (($index / $collectors.Count) * 100)
 
@@ -10661,7 +10846,7 @@ function Export-ThreatJetData {
         }
     }
 
-    Write-Progress -Activity 'ThreatJet collection' -Completed
+    Write-Progress -Activity 'ThreatJET collection' -Completed
 
     $failed = @($results | Where-Object { $_.Status -like 'FAILED*' })
 
@@ -10702,7 +10887,7 @@ function Find-TJETAttackPath {
     [CmdletBinding()]
     param(
         [Alias('InDir','InputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [ValidateRange(1, 10000)]
         [int]$Top = 20
@@ -10756,15 +10941,15 @@ function Find-TJETAttackPath {
 
 
 # ==========================================================================
-# SOURCE: Public\Invoke-ThreatJetAssessment.ps1
+# SOURCE: Public\Invoke-ThreatJETAssessment.ps1
 # ==========================================================================
-function Invoke-ThreatJetAssessment {
+function Invoke-ThreatJETAssessment {
 <#
 .SYNOPSIS
     Runs a complete AD security assessment assessment: collect, correlate, report.
 .DESCRIPTION
-    One command for the common case. Equivalent to Export-ThreatJetData,
-    Invoke-ThreatJetCorrelation and New-ThreatJetReport in sequence.
+    One command for the common case. Equivalent to Export-ThreatJETData,
+    Invoke-ThreatJETCorrelation and New-ThreatJETReport in sequence.
 
     Output is timestamped by default so consecutive assessments do not overwrite each
     other, which also means the previous run is preserved and can be used directly as
@@ -10773,7 +10958,7 @@ function Invoke-ThreatJetAssessment {
     Use -SkipCollection to re-analyse already-collected data (for example on an
     analyst workstation with no RSAT, or after tuning thresholds).
 .PARAMETER Path
-    Assessment directory. Defaults to .\ThreatJet_<yyyyMMdd-HHmm>.
+    Assessment directory. Defaults to .\ThreatJET_<yyyyMMdd-HHmm>.
 .PARAMETER AclMode
     Targeted (default) or Full ACL collection. Full is slow on large estates.
 .PARAMETER SkipCollection
@@ -10801,31 +10986,31 @@ function Invoke-ThreatJetAssessment {
 .PARAMETER OpenReport
     Open the HTML report when finished.
 .EXAMPLE
-    Invoke-ThreatJetAssessment
+    Invoke-ThreatJETAssessment
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -AclMode Full -OpenReport
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -AclMode Full -OpenReport
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -IncludeInventory
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -IncludeInventory
     Full assessment plus a complete object inventory for hunting and scoping.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -BaselinePath C:\Audit\Q2\AD_Assessment_Findings.csv
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -BaselinePath C:\Audit\Q2\AD_Assessment_Findings.csv
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Path C:\Audit\Q3 -SkipCollection
+    Invoke-ThreatJETAssessment -Path C:\Audit\Q3 -SkipCollection
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Scope LocalHost
+    Invoke-ThreatJETAssessment -Scope LocalHost
     Local privilege-escalation checks only. No AD, no RSAT, no domain required.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -ADObjectType Users,Groups -Scope AD,AttackPath
+    Invoke-ThreatJETAssessment -ADObjectType Users,Groups -Scope AD,AttackPath
     Collect only users and groups, then trace attack paths across them.
 .EXAMPLE
-    Invoke-ThreatJetAssessment -Scope LocalHost -IncludeCVEScan -DataminePasswords
+    Invoke-ThreatJETAssessment -Scope LocalHost -IncludeCVEScan -DataminePasswords
     Full local host review: WinPEAS-style checks, open ports, credential datamine, and
     an offline CVE scan of installed software.
 #>
     [CmdletBinding()]
     param(
         [Alias('OutDir')]
-        [string]$Path = (Join-Path $PWD "ThreatJet_$(Get-Date -Format 'yyyyMMdd-HHmm')"),
+        [string]$Path = (Join-Path $PWD "ThreatJET_$(Get-Date -Format 'yyyyMMdd-HHmm')"),
 
         # Preset bundles of options for common assessment shapes. A profile sets defaults;
         # any parameter you pass explicitly still overrides the profile. Omit for the
@@ -11043,7 +11228,7 @@ function Invoke-ThreatJetAssessment {
 
 
     Write-Host ''
-    Write-Host '  ThreatJet Assessment' -ForegroundColor Cyan
+    Write-Host '  ThreatJET Assessment' -ForegroundColor Cyan
     Write-Host "  Version $($script:TJETConfig.CollectorVersion)  |  Schema $($script:TJETConfig.SchemaVersion)" -ForegroundColor DarkGray
     Write-Host "  Output: $Path" -ForegroundColor DarkGray
     Write-Host ''
@@ -11078,7 +11263,7 @@ function Invoke-ThreatJetAssessment {
             $exportArgs = @{ Path = $Path; AclMode = $AclMode; Include = $include.ToArray() }
             if ($Server)     { $exportArgs['Server'] = $Server }
             if ($Credential) { $exportArgs['Credential'] = $Credential }
-            Export-ThreatJetData @exportArgs | Out-Null
+            Export-ThreatJETData @exportArgs | Out-Null
         }
         else {
             Write-TJETLog WARNING 'No collection scope selected.'
@@ -11094,7 +11279,7 @@ function Invoke-ThreatJetAssessment {
     if ($CVEDatabasePath)  { $cveArgs['CVEDatabasePath'] = $CVEDatabasePath }
     if ($SuppressionPath)  { $cveArgs['SuppressionPath'] = $SuppressionPath }
 
-    $findings = Invoke-ThreatJetCorrelation -Path $Path -PassThru `
+    $findings = Invoke-ThreatJETCorrelation -Path $Path -PassThru `
         -SkipAttackPath:(-not $runAttack) @cveArgs
 
     # Compute + persist coverage before the report so the report can render it. This is
@@ -11108,7 +11293,7 @@ function Invoke-ThreatJetAssessment {
     # RESOLVED / PERSISTENT) can be rendered in the HTML, not just written to a CSV.
     if ($BaselinePath) {
         if (Test-Path $BaselinePath) {
-            $diff = Compare-ThreatJetBaseline `
+            $diff = Compare-ThreatJETBaseline `
                 -CurrentPath (Join-Path $Path 'AD_Assessment_Findings.csv') `
                 -BaselinePath $BaselinePath
 
@@ -11121,8 +11306,8 @@ function Invoke-ThreatJetAssessment {
         }
     }
 
-    $reportPath = Join-Path $Path 'ThreatJet_Report.html'
-    New-ThreatJetReport -Path $Path -ReportPath $reportPath | Out-Null
+    $reportPath = Join-Path $Path 'ThreatJET_Report.html'
+    New-ThreatJETReport -Path $Path -ReportPath $reportPath | Out-Null
 
     # Remediation deliverable: fix steps + specific (guarded) command syntax per finding.
     New-TJETRemediationReport -Path $Path | Out-Null
@@ -11195,9 +11380,9 @@ function Invoke-ThreatJetAssessment {
 
 
 # ==========================================================================
-# SOURCE: Public\Invoke-ThreatJetCorrelation.ps1
+# SOURCE: Public\Invoke-ThreatJETCorrelation.ps1
 # ==========================================================================
-function Invoke-ThreatJetCorrelation {
+function Invoke-ThreatJETCorrelation {
 
     [CmdletBinding()]
 
@@ -11205,7 +11390,7 @@ function Invoke-ThreatJetCorrelation {
 
         [Alias('InDir','InputPath')]
         [string]
-        $Path = (Join-Path $PWD "ThreatJet_Output"),
+        $Path = (Join-Path $PWD "ThreatJET_Output"),
 
         [switch]
         $PassThru,
@@ -11382,9 +11567,9 @@ function Invoke-ThreatJetCorrelation {
     Export-Findings @efArgs | Out-Null
 
 
-    # [FIX] Also emit JSON. Export-ThreatJetJSON existed but was never called by
+    # [FIX] Also emit JSON. Export-ThreatJETJSON existed but was never called by
     # anything, so the JSON artifact the baseline workflow expects was never created.
-    Export-ThreatJetJSON `
+    Export-ThreatJETJSON `
         -Path $Path
 
 
@@ -11401,9 +11586,9 @@ function Invoke-ThreatJetCorrelation {
 
 
 # ==========================================================================
-# SOURCE: Public\New-ThreatJetReport.ps1
+# SOURCE: Public\New-ThreatJETReport.ps1
 # ==========================================================================
-function New-ThreatJetReport {
+function New-ThreatJETReport {
 <#
 .SYNOPSIS
     Generates an interactive HTML assessment report.
@@ -11427,14 +11612,14 @@ function New-ThreatJetReport {
     [CmdletBinding()]
     param(
         [Alias('InDir','InputPath')]
-        [string]$Path = (Join-Path $PWD 'ThreatJet_Output'),
+        [string]$Path = (Join-Path $PWD 'ThreatJET_Output'),
 
         [Alias('OutputPath')]
         [string]$ReportPath
     )
 
     if (-not $ReportPath) {
-        $ReportPath = Join-Path $Path 'ThreatJet_Report.html'   # lint:allow-param-assign
+        $ReportPath = Join-Path $Path 'ThreatJET_Report.html'   # lint:allow-param-assign
     }
 
     Write-TJETLog INFO 'Generating HTML assessment report'
@@ -11442,7 +11627,7 @@ function New-ThreatJetReport {
     $findingsFile = Join-Path $Path 'AD_Assessment_Findings.csv'
 
     if (-not (Test-Path $findingsFile)) {
-        Write-TJETLog ERROR "Findings file not found: $findingsFile. Run Invoke-ThreatJetCorrelation first."
+        Write-TJETLog ERROR "Findings file not found: $findingsFile. Run Invoke-ThreatJETCorrelation first."
         return
     }
 
@@ -11484,8 +11669,12 @@ function New-ThreatJetReport {
         return ("$($f.Finding_Type)" -eq 'Vulnerability') -or ("$($f.Finding_ID)" -like 'CVE-*')
     }
 
-    # The main findings table: everything active EXCEPT vulnerabilities (aggregates stay).
-    $findings = @($findings | Where-Object { -not (Test-Vulnerability $_) })
+    # The main findings table: everything active EXCEPT vulnerabilities AND aggregates.
+    # Aggregates (choke point, blast radius) were previously left in the table while being
+    # excluded from the headline cards, which made the table's critical count (e.g. 23)
+    # disagree with the dashboard (22). They are surfaced in the Attack-Path Insights panel
+    # instead, so removing them from the table makes the two totals agree.
+    $findings = @($findings | Where-Object { -not (Test-Vulnerability $_) -and -not (Test-Aggregate $_) })
 
     $runIdHtml = if ($script:TJETRunId) { " &nbsp;&middot;&nbsp; $($script:TJETRunId)" } else { "" }
 
@@ -12072,7 +12261,7 @@ function exportVisible() {
   var blob = new Blob([out.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'ThreatJet_Filtered.csv';
+  a.download = 'ThreatJET_Filtered.csv';
   a.click();
 }
 
@@ -12182,14 +12371,14 @@ sortTable(1);
 function Show-TJETMenu {
 <#
 .SYNOPSIS
-    Interactive menu for ThreatJet. Answer prompts instead of remembering flags.
+    Interactive menu for ThreatJET. Answer prompts instead of remembering flags.
 .DESCRIPTION
     A front end over the exported commands. After loading the toolkit (dot-source the
     standalone file, or import the module), run Show-TJETMenu and choose what to do. It
     builds the correct parameter set from your answers and calls the real commands, so
     the menu can never do anything the commands cannot.
 
-        . .\ThreatJet.ps1
+        . .\ThreatJET.ps1
         Show-TJETMenu
 #>
     [CmdletBinding()]
@@ -12367,7 +12556,7 @@ public static class TJETVt {
         Read-Host '  Press Enter to return to the menu' | Out-Null
     }
 
-    $defaultOut = Join-Path $PWD "ThreatJet_$(Get-Date -Format 'yyyyMMdd-HHmm')"
+    $defaultOut = Join-Path $PWD "ThreatJET_$(Get-Date -Format 'yyyyMMdd-HHmm')"
 
     # Shared production options: pin a DC and optionally throttle. Returns a hashtable
     # of extra splat args (empty when the user takes the defaults).
@@ -12409,7 +12598,7 @@ public static class TJETVt {
         Invoke-MenuAction {
             $splat = @{ Profile = $chosen; Path = $outPath; OpenReport = $open }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12429,7 +12618,7 @@ public static class TJETVt {
             if ($datamine)  { $splat['DataminePasswords'] = $true }
             if ($cve)       { $splat['IncludeCVEScan'] = $true; $splat['CVEDatabasePath'] = $cveDb }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12467,7 +12656,7 @@ public static class TJETVt {
             $splat = @{ Path = $outPath; Scope = $scope; AclMode = $aclMode; OpenReport = $open }
             if ($adTypes.Count -gt 0) { $splat['ADObjectType'] = $adTypes }
             foreach ($k in $prod.Keys) { $splat[$k] = $prod[$k] }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12483,7 +12672,7 @@ public static class TJETVt {
             $splat = @{ Path = $outPath; Scope = @('LocalHost'); OpenReport = $open }
             if ($datamine) { $splat['DataminePasswords'] = $true }
             if ($cve)      { $splat['IncludeCVEScan'] = $true; $splat['CVEDatabasePath'] = $cveDb }
-            Invoke-ThreatJetAssessment @splat
+            Invoke-ThreatJETAssessment @splat
         }
     }
 
@@ -12517,7 +12706,7 @@ public static class TJETVt {
         }
         $open = Read-YesNo 'Open the HTML report when done?' $true
         Invoke-MenuAction {
-            Invoke-ThreatJetAssessment -Path $inPath -SkipCollection -OpenReport:$open
+            Invoke-ThreatJETAssessment -Path $inPath -SkipCollection -OpenReport:$open
         }
     }
 
@@ -12529,7 +12718,7 @@ public static class TJETVt {
             Read-Host '  Press Enter' | Out-Null; return
         }
         Invoke-MenuAction {
-            Compare-ThreatJetBaseline -CurrentPath $current -BaselinePath $baseline
+            Compare-ThreatJETBaseline -CurrentPath $current -BaselinePath $baseline
         }
     }
 
@@ -12549,9 +12738,9 @@ public static class TJETVt {
         Write-MenuHeader
 
         # Guard: the toolkit functions must be loaded first.
-        if (-not (Get-Command Invoke-ThreatJetAssessment -ErrorAction SilentlyContinue)) {
+        if (-not (Get-Command Invoke-ThreatJETAssessment -ErrorAction SilentlyContinue)) {
             Write-Host '  Toolkit not loaded. Dot-source the file first:' -ForegroundColor Red
-            Write-Host '      . .\ThreatJet.ps1' -ForegroundColor White
+            Write-Host '      . .\ThreatJET.ps1' -ForegroundColor White
             return
         }
 
@@ -12577,7 +12766,7 @@ public static class TJETVt {
 # ==========================================================================
 if ($MyInvocation.InvocationName -ne '.') {
     Write-Host ""
-    Write-Host "  ThreatJET - Jumbo Evaluation Toolkit (single-file build, v2.4.0)" -ForegroundColor Cyan
+    Write-Host "  ThreatJET - Jumbo Evaluation Toolkit (single-file build, v2.5.1)" -ForegroundColor Cyan
     Write-Host "  Dot-source this file, then run: Show-TJETMenu" -ForegroundColor Gray
     Write-Host ""
 }

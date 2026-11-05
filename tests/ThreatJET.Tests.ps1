@@ -1,6 +1,6 @@
 # Pester 5.x regression smoke tests. No AD connection or external feeds required.
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..\ThreatJet.ps1')
+    . (Join-Path $PSScriptRoot '..\ThreatJET.ps1')
 }
 
 Describe 'ThreatJET read-only helper functions' {
@@ -61,11 +61,27 @@ Describe 'ThreatJET read-only helper functions' {
 
 Describe 'Windows PowerShell 5.1 banner encoding' {
     It 'stores the standalone script as UTF-8 with BOM so Unicode banner glyphs survive loading' {
-        $path = Join-Path $PSScriptRoot '..\ThreatJet.ps1'
+        $path = Join-Path $PSScriptRoot '..\ThreatJET.ps1'
         $bytes = [System.IO.File]::ReadAllBytes($path)
         $bytes.Length | Should -BeGreaterThan 3
         $bytes[0] | Should -Be 0xEF
         $bytes[1] | Should -Be 0xBB
         $bytes[2] | Should -Be 0xBF
+    }
+}
+
+Describe 'ThreatJET canonical naming' {
+    It 'loads the canonical entrypoint and public commands' {
+        $scriptPath = Join-Path $PSScriptRoot '..\ThreatJET.ps1'
+        (Test-Path -LiteralPath $scriptPath) | Should -BeTrue
+        (Get-Command Invoke-ThreatJETAssessment -ErrorAction Stop).Name | Should -Be 'Invoke-ThreatJETAssessment'
+        (Get-Command New-ThreatJETReport -ErrorAction Stop).Name | Should -Be 'New-ThreatJETReport'
+    }
+
+    It 'uses canonical output and suppression filenames' {
+        $scriptPath = Join-Path $PSScriptRoot '..\ThreatJET.ps1'
+        $source = [System.IO.File]::ReadAllText($scriptPath)
+        $source.Contains('ThreatJET_Report.html') | Should -BeTrue
+        $source.Contains('ThreatJET.Suppressions.json') | Should -BeTrue
     }
 }

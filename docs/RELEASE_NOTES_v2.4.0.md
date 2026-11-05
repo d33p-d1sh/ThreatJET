@@ -14,7 +14,7 @@ guidance.
 
 ## Included files
 
-- `ThreatJet.ps1` — standalone assessment tool, compatible with Windows
+- `ThreatJET.ps1` — standalone assessment tool, compatible with Windows
   PowerShell 5.1+.
 - `Build-TJETCveDatabase.ps1` — optional offline CVE database builder for
   locally downloaded cvelistV5 data, with optional KEV/EPSS enrichment.

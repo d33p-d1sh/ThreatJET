@@ -20,7 +20,7 @@ script declares **2.4.0**, but that does not itself create a tagged release.
 
 - [ ] Choose version tag (e.g. `v2.4.0`) after the verification above.
 - [ ] Draft release notes describing notable changes, compatibility, and limitations.
-- [ ] Include `ThreatJet.ps1` and `Build-TJETCveDatabase.ps1` as standalone assets
+- [ ] Include `ThreatJET.ps1` and `Build-TJETCveDatabase.ps1` as standalone assets
       if you want one-click downloads; GitHub's source archive is also available.
 - [ ] Generate and publish SHA-256 checksums for each downloadable asset.
 - [ ] Mark the release as pre-release if testing is incomplete.
