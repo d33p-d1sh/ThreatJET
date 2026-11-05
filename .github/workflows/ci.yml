@@ -25,7 +25,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('ThreatJet.ps1', 'Build-TJETCveDatabase.ps1')) {
+          foreach ($file in @('ThreatJET.ps1', 'Build-TJETCveDatabase.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          foreach ($file in @('ThreatJet.ps1', 'Build-TJETCveDatabase.ps1')) {
+          foreach ($file in @('ThreatJET.ps1', 'Build-TJETCveDatabase.ps1')) {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $file), [ref]$tokens, [ref]$errors) | Out-Null
@@ -95,7 +95,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
           Import-Module PSScriptAnalyzer -ErrorAction Stop
-          foreach ($file in @('ThreatJet.ps1', 'Build-TJETCveDatabase.ps1')) {
+          foreach ($file in @('ThreatJET.ps1', 'Build-TJETCveDatabase.ps1')) {
             $findings = @(Invoke-ScriptAnalyzer -Path $file -Severity Error,Warning)
             Write-Host ("{0}: {1} diagnostic(s)" -f $file, $findings.Count)
             $findings | Select-Object -First 30 RuleName, Severity, Line, Message | Format-Table -Wrap

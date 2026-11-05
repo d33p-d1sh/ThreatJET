@@ -1,6 +1,6 @@
 # Offline regression tests for the reviewed v2.5.1 source.
 BeforeAll {
-    . (Join-Path $PSScriptRoot '..\ThreatJet.ps1')
+    . (Join-Path $PSScriptRoot '..\ThreatJET.ps1')
 
     function New-SyntheticPortRecord {
         param([string]$Address, [int]$Port = 3389, [string]$Protocol = 'TCP', [bool]$BoundToAll = $false)
